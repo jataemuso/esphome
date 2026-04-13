@@ -1,0 +1,139 @@
+esphome:
+  name: esp32_t_display
+  friendly_name: ESP32 Display Temp
+
+esp32:
+  board: esp32dev
+  framework:
+    type: arduino
+
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+
+logger:
+api:
+ota:
+  platform: esphome
+
+
+# =========================
+# Sensores vindos do HA
+# =========================
+sensor:
+  - platform: homeassistant
+    id: temp
+    entity_id: sensor.temp_temperatura
+
+  - platform: homeassistant
+    id: umid
+    entity_id: sensor.temp_umidade
+
+# =========================
+# SPI do display
+# =========================
+spi:
+  clk_pin: 18
+  mosi_pin: 19
+
+# =========================
+# Fontes
+# =========================
+font:
+  - file: "gfonts://Roboto"
+    id: font_xl
+    size: 36
+  - file: "gfonts://Roboto"
+    id: font_md
+    size: 18
+  - file: "gfonts://Roboto"
+    id: font_sm
+    size: 12
+
+color:
+  - id: black
+    red: 0%
+    green: 0%
+    blue: 0%
+
+  - id: white
+    red: 100%
+    green: 100%
+    blue: 100%
+
+  - id: gray
+    red: 60%
+    green: 60%
+    blue: 60%
+
+  - id: dark_gray
+    red: 30%
+    green: 30%
+    blue: 30%
+
+  - id: cyan
+    red: 0%
+    green: 80%
+    blue: 80%
+
+
+
+display:
+  - platform: st7789v
+    model: "TTGO TDisplay 135x240"
+    cs_pin: 5
+    dc_pin: 16
+    reset_pin: 23
+    backlight_pin: 4
+    rotation: 90
+    update_interval: 1s
+    lambda: |-
+      it.fill(id(black));
+
+      // ===== Temperatura =====
+      it.printf(
+        120, 25,
+        id(font_xl),
+        id(white),
+        TextAlign::TOP_CENTER,
+        "%.2f°C",
+        id(temp).state
+      );
+
+      it.printf(
+        120, 65,
+        id(font_sm),
+        id(gray),
+        TextAlign::TOP_CENTER,
+        "TEMPERATURA"
+      );
+
+      // Linha divisória
+      it.line(20, 95, 220, 95, id(gray));
+
+      // ===== Umidade =====
+      it.printf(
+        120, 105,
+        id(font_md),
+        id(cyan),
+        TextAlign::TOP_CENTER,
+        "%.2f %%",
+        id(umid).state
+      );
+
+      it.printf(
+        120, 135,
+        id(font_sm),
+        id(gray),
+        TextAlign::TOP_CENTER,
+        "UMIDADE"
+      );
+
+      // Rodapé
+      it.printf(
+        120, 155,
+        id(font_sm),
+        id(dark_gray),
+        TextAlign::TOP_CENTER,
+        "Home Assistant"
+      );

@@ -1,0 +1,116 @@
+esphome:
+  name: secadora
+  friendly_name: secadora inteligente
+
+esp8266:
+  board: nodemcuv2
+
+# 🔌 Rede (IP fixo)
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+  manual_ip:
+    static_ip: 192.168.1.148
+    gateway: 192.168.1.1
+    subnet: 255.255.255.0
+
+  ap:
+    ssid: "Secadora Fallback"
+    password: "esphome123"
+
+captive_portal:
+
+# 🔐 API com criptografia (MANTIDA)
+api:
+  encryption:
+    key: !secret api_encryption_key_secadora
+
+# 🔄 OTA
+ota:
+  - platform: esphome
+    password: !secret ota_password
+
+
+# 📋 Logs
+logger:
+
+# 🌡️ Sensor SHT45 (I²C)
+i2c:
+  sda: D2
+  scl: D1
+  scan: true
+
+sensor:
+  - platform: sht4x
+    address: 0x44
+
+    temperature:
+      name: "Temperatura Secadora"
+      id: secadora_temperatura_secadora
+      icon: mdi:thermometer
+      state_class: measurement
+      device_class: temperature
+      unit_of_measurement: "°C"
+      filters:
+        - sliding_window_moving_average:
+            window_size: 15
+            send_every: 1
+
+    humidity:
+      name: "Umidade Secadora"
+      id: secadora_umidade_secadora
+      icon: mdi:water-percent
+      state_class: measurement
+      device_class: humidity
+      unit_of_measurement: "%"
+      filters:
+        - sliding_window_moving_average:
+            window_size: 15
+            send_every: 1
+
+    update_interval: 5s
+
+
+
+  - platform: template
+    name: "Secadora Dew Point"
+    id: secadora_dew_point
+    icon: mdi:weather-fog
+    unit_of_measurement: "°C"
+    device_class: temperature
+    state_class: measurement
+    update_interval: 10s
+    lambda: |-
+      if (isnan(id(secadora_temperatura_secadora).state) ||
+          isnan(id(secadora_umidade_secadora).state)) {
+        return NAN;
+      }
+
+      const float a = 17.27;
+      const float b = 237.7;
+
+      float temp = id(secadora_temperatura_secadora).state;
+      float rh = id(secadora_umidade_secadora).state;
+
+      float alpha = log(rh / 100.0) + ((a * temp) / (b + temp));
+      float dew_point = (b * alpha) / (a - alpha);
+
+      return dew_point;
+  
+
+
+  - platform: template
+    name: "Secadora Delta T"
+    id: secadora_delta_t
+    icon: mdi:delta
+    unit_of_measurement: "°C"
+    state_class: measurement
+    update_interval: 10s
+    lambda: |-
+      if (isnan(id(secadora_temperatura_secadora).state) ||
+          isnan(id(secadora_dew_point).state)) {
+        return NAN;
+      }
+
+      return id(secadora_temperatura_secadora).state
+           - id(secadora_dew_point).state;

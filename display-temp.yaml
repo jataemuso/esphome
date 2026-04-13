@@ -1,0 +1,322 @@
+esphome:
+  name: esp32_t_display
+  friendly_name: ESP32 Display Temp
+
+esp32:
+  board: esp32dev
+  framework:
+    type: arduino
+
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+  ap:
+    ssid: "Display Fallback Hotspot"
+    password: !secret fallback_passoword
+
+captive_portal:
+
+logger:
+
+api:
+  encryption:
+    key: !secret api_encryption_key_temp_display
+
+ota:
+  - platform: esphome
+    password: "fad4086e92495d05351f88460f50d304"
+
+# =========================
+# I2C para o SHT41
+# =========================
+i2c:
+  sda: GPIO21
+  scl: GPIO22
+  scan: true
+
+# =========================
+# SPI do display
+# =========================
+spi:
+  clk_pin: 18
+  mosi_pin: 19
+
+# =========================
+# Sensores
+# =========================
+sensor:
+  - platform: sht4x
+    address: 0x44
+    temperature:
+      name: "Temperatura"
+      id: temp
+      accuracy_decimals: 2
+      filters:
+        - sliding_window_moving_average:
+            window_size: 15
+            send_every: 1
+    humidity:
+      name: "Umidade"
+      id: umid
+      accuracy_decimals: 2
+      filters:
+        - sliding_window_moving_average:
+            window_size: 15
+            send_every: 1
+    update_interval: 3s
+
+  - platform: template
+    name: "Dew Point"
+    id: dew_point
+    unit_of_measurement: "°C"
+    accuracy_decimals: 2
+    update_interval: 5s
+    lambda: |-
+      if (isnan(id(temp).state) || isnan(id(umid).state)) {
+        return NAN;
+      }
+      const float a = 17.27;
+      const float b = 237.7;
+      float t = id(temp).state;
+      float rh = id(umid).state;
+      float alpha = log(rh / 100.0) + (a * t) / (b + t);
+      return (b * alpha) / (a - alpha);
+
+text_sensor:
+  - platform: template
+    name: "Conforto do Ambiente"
+    update_interval: 5s
+    lambda: |-
+      float dp = id(dew_point).state;
+      if (isnan(dp)) return {"Indisponível"};
+      if (dp < 10.0) return {"Muito seco"};
+      if (dp < 15.5) return {"Confortável"};
+      if (dp < 18.3) return {"Começando a grudar"};
+      if (dp < 21.1) return {"Desagradável"};
+      return {"Muito abafado"};
+
+  - platform: template
+    name: "Modo Recomendado do Ar"
+    update_interval: 5s
+    lambda: |-
+      float dp = id(dew_point).state;
+      float t = id(temp).state;
+      if (isnan(dp) || isnan(t)) return {"Indisponível"};
+      if (dp > 16.0) {
+        if (t > 26.0) return {"COOL"};
+        return {"DRY"};
+      }
+      if (t > 27.0) return {"COOL"};
+      return {"OFF"};
+
+
+# =========================
+# Botões físicos
+# =========================
+binary_sensor:
+  - platform: gpio
+    pin:
+      number: GPIO0
+      inverted: true        # O botão 0 é ativo-baixo (pull-up interno)
+      mode:
+        input: true
+        pullup: true
+    name: "Botão 0"
+    id: btn_0
+    filters:
+      - delayed_on: 10ms    # Debounce — evita leituras falsas
+      - delayed_off: 10ms
+    on_press:
+      then:
+        - homeassistant.event:
+            event: esphome.botao_pressionado
+            data:
+              device: "esp32_t_display"
+              acao: "pressionar"
+    on_release:
+      then:
+        - homeassistant.event:
+            event: esphome.botao_solto
+            data:
+              device: "esp32_t_display"
+              acao: "soltar"
+
+  # GPIO35 é input-only, sem pull-up interno — exige resistor externo
+  # Descomente abaixo apenas se tiver o resistor físico
+  # - platform: gpio
+  #   pin:
+  #     number: GPIO35
+  #     inverted: true
+  #   name: "Botão 35"
+  #   id: btn_35
+
+
+
+
+
+# =========================
+# Fontes
+# =========================
+font:
+  - file: "gfonts://Roboto"
+    id: font_xl
+    size: 34
+  - file: "gfonts://Roboto"
+    id: font_md
+    size: 20
+  - file: "gfonts://Roboto"
+    id: font_sm
+    size: 11
+
+# =========================
+# Cores
+# =========================
+color:
+  - id: black
+    red: 0%
+    green: 0%
+    blue: 0%
+  - id: white
+    red: 100%
+    green: 100%
+    blue: 100%
+  - id: gray
+    red: 60%
+    green: 60%
+    blue: 60%
+  - id: dark_gray
+    red: 30%
+    green: 30%
+    blue: 30%
+  - id: cyan
+    red: 0%
+    green: 80%
+    blue: 80%
+  # Cores do conforto (dew point)
+  - id: color_seco       # azul - muito seco
+    red: 20%
+    green: 40%
+    blue: 100%
+  - id: color_confort    # verde - confortável
+    red: 0%
+    green: 90%
+    blue: 20%
+  - id: color_grudar     # amarelo - começando a grudar
+    red: 100%
+    green: 90%
+    blue: 0%
+  - id: color_desagr     # vermelho - desagradável
+    red: 100%
+    green: 10%
+    blue: 10%
+  - id: color_abafado    # roxo - muito abafado
+    red: 80%
+    green: 0%
+    blue: 100%
+
+# =========================
+# Display
+# =========================
+display:
+  - platform: st7789v
+    model: "TTGO TDisplay 135x240"
+    cs_pin: 5
+    dc_pin: 16
+    reset_pin: 23
+    backlight_pin: 4
+    rotation: 90
+    update_interval: 1s
+    lambda: |-
+      it.fill(id(black));
+
+      // ===== Temperatura =====
+      it.printf(
+        120, 8,
+        id(font_xl),
+        id(white),
+        TextAlign::TOP_CENTER,
+        "%.2f°C",
+        id(temp).state
+      );
+      it.printf(
+        120, 46,
+        id(font_sm),
+        id(gray),
+        TextAlign::TOP_CENTER,
+        "TEMPERATURA"
+      );
+
+      // Linha divisória
+      it.line(15, 62, 225, 62, id(dark_gray));
+
+      // ===== Umidade =====
+      it.printf(
+        120, 68,
+        id(font_md),
+        id(cyan),
+        TextAlign::TOP_CENTER,
+        "%.2f%%",
+        id(umid).state
+      );
+      it.printf(
+        120, 92,
+        id(font_sm),
+        id(gray),
+        TextAlign::TOP_CENTER,
+        "UMIDADE"
+      );
+
+      // Linha divisória
+      it.line(15, 108, 225, 108, id(dark_gray));
+
+      // ===== Dew Point com cor de conforto =====
+      float dp = id(dew_point).state;
+      Color dp_color;
+      const char* dp_label;
+
+      if (isnan(dp)) {
+        dp_color = id(gray);
+        dp_label = "DEW POINT";
+      } else if (dp < 10.0) {
+        dp_color = id(color_seco);
+        dp_label = "MUITO SECO";
+      } else if (dp < 15.5) {
+        dp_color = id(color_confort);
+        dp_label = "CONFORTAVEL";
+      } else if (dp < 18.3) {
+        dp_color = id(color_grudar);
+        dp_label = "A GRUDAR";
+      } else if (dp < 21.1) {
+        dp_color = id(color_desagr);
+        dp_label = "DESAGRADAVEL";
+      } else {
+        dp_color = id(color_abafado);
+        dp_label = "MUITO ABAFADO";
+      }
+
+      if (isnan(dp)) {
+        it.printf(
+          120, 114,
+          id(font_md),
+          id(gray),
+          TextAlign::TOP_CENTER,
+          "---"
+        );
+      } else {
+        it.printf(
+          120, 114,
+          id(font_md),
+          dp_color,
+          TextAlign::TOP_CENTER,
+          "%.2f°C",
+          dp
+        );
+      }
+
+      it.printf(
+        120, 138,
+        id(font_sm),
+        dp_color,
+        TextAlign::TOP_CENTER,
+        dp_label
+      );
